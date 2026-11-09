@@ -106,7 +106,7 @@ def prepare(root: Path, api_id: str = "", api_hash: str = "") -> str:
     # Quando houver um projeto Firebase proprio, rever este patch e fornecer
     # google-services.json exclusivo pelo Actions Secrets.
     rewrite(app_gradle, lambda s: replace_exact(
-        s, r"^apply plugin: 'com\\.google\\.gms\\.google-services'$",
+        s, r"^apply plugin: 'com\.google\.gms\.google-services'$",
         "// Firebase desativado no VoidGram Preview; push FCM nao configurado.",
         "Google Services plugin do app standalone"
     ))
