@@ -48,7 +48,8 @@ jobs:
         with:
           cache-disabled: true
 
-      - uses: android-actions/setup-android@v3
+      # O runner ubuntu-24.04 ja traz command-line tools do Android.
+      # A action setup-android@v3 tenta instalar o pacote legado 'tools' (removido).
 
       - name: SDK, NDK e CMake do Telegram Android
         run: |
