@@ -100,6 +100,17 @@ def prepare(root: Path, api_id: str = "", api_hash: str = "") -> str:
         s, r'applicationIdSuffix "\.web"', 'applicationIdSuffix ".beta"', "suffix da variante debug"
     ))
 
+    # O google-services.json do upstream pertence ao Telegram e nao possui
+    # cliente com o applicationId do VoidGram. Um build de preview nao deve
+    # reutilizar esse Firebase, nem fingir uma configuracao valida.
+    # Quando houver um projeto Firebase proprio, rever este patch e fornecer
+    # google-services.json exclusivo pelo Actions Secrets.
+    rewrite(app_gradle, lambda s: replace_exact(
+        s, r"^apply plugin: 'com\\.google\\.gms\\.google-services'$",
+        "// Firebase desativado no VoidGram Preview; push FCM nao configurado.",
+        "Google Services plugin do app standalone"
+    ))
+
     icon = root / "TMessagesProj/src/main/res/drawable/voidgram_icon.xml"
     icon.parent.mkdir(parents=True, exist_ok=True)
     icon.write_text(ICON_XML, encoding="utf-8")
