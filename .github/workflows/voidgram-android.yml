@@ -1,0 +1,131 @@
+name: VoidGram Android — teste e APK experimental
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/voidgram-android.yml"
+      - "scripts/**"
+      - "tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voidgram-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verificar scripts do VoidGram
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Testar patch do app
+        run: |
+          python -m py_compile scripts/prepare_voidgram.py
+          python -m unittest discover -s tests -v
+
+  android:
+    name: Compilar APK experimental (sem chave oficial)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - uses: android-actions/setup-android@v3
+
+      - name: SDK, NDK e CMake do Telegram Android
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build yasm nasm
+
+      - name: Baixar upstream fixado e seus submodulos
+        env:
+          UPSTREAM_SHA: "7be672ead283d022812d75c729d3a04dd4c2a2c6"
+        run: |
+          git init Telegram
+          cd Telegram
+          git remote add origin https://github.com/DrKLO/Telegram.git
+          git -c protocol.version=2 fetch --depth=1 origin "$UPSTREAM_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$UPSTREAM_SHA"
+          git submodule update --init --recursive --depth=1
+          git rev-parse HEAD > ../UPSTREAM_COMMIT.txt
+
+      - name: Personalizar marca, pacote e API propria
+        env:
+          VOIDGRAM_API_ID: ${{ secrets.VOIDGRAM_API_ID }}
+          VOIDGRAM_API_HASH: ${{ secrets.VOIDGRAM_API_HASH }}
+        run: |
+          python3 scripts/prepare_voidgram.py --source Telegram
+
+      - name: Criar assinatura TEMPORARIA somente para o APK de teste
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd Telegram
+          rm -f TMessagesProj/config/release.keystore
+          KS_PASS="$(openssl rand -hex 16)"
+          keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 -validity 365 \
+            -alias voidgramtemp -keystore TMessagesProj/config/release.keystore \
+            -storepass "$KS_PASS" -keypass "$KS_PASS" \
+            -dname "CN=VoidGram Preview,O=PedroVoid,C=BR" >/dev/null
+          {
+            echo "RELEASE_KEY_ALIAS=voidgramtemp"
+            echo "RELEASE_KEY_PASSWORD=$KS_PASS"
+            echo "RELEASE_STORE_PASSWORD=$KS_PASS"
+            echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
+            echo "org.gradle.parallel=false"
+          } >> gradle.properties
+          echo "AVISO: assinatura temporaria, instale sem preservar dados de builds anteriores."
+
+      - name: Compilar VoidGram para Android
+        working-directory: Telegram
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
+            --no-daemon --max-workers=2 --stacktrace
+
+      - name: Manifesto de APKs e hash
+        if: success()
+        run: |
+          find Telegram/TMessagesProj_AppStandalone/build/outputs/apk -name '*.apk' \
+            -type f -print -exec sha256sum {} \;
+
+      - name: Disponibilizar APK experimental
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoidGram-Android-Preview
+          path: Telegram/TMessagesProj_AppStandalone/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Registrar SHA de upstream
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoidGram-Upstream-SHA
+          path: UPSTREAM_COMMIT.txt
+          if-no-files-found: ignore
+          retention-days: 7
