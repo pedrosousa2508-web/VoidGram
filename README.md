@@ -25,3 +25,22 @@ Um mensageiro personalizado, extensível e transparente: preservar toda a experi
 5. [ ] **M5** — qualidade, privacidade, performance e versão assinada.
 
 **VoidGram não é afiliado, patrocinado ou endossado pelo Telegram.**
+
+
+## Primeira compilação Android (CI)
+O repositório agora contém:
+- [Workflow GitHub Actions](.github/workflows/voidgram-android.yml): executa testes, baixa a base oficial no commit rastreado e tenta compilar uma variante Android standalone.
+- [Script de personalização](scripts/prepare_voidgram.py): troca identificador do pacote, nome visível, ícone PV experimental, configuração de API e desliga funções exclusivas da assinatura oficial.
+- [Testes do script](tests/test_prepare_voidgram.py): verificações automáticas de mudanças e da configuração de credenciais.
+- [Execuções e APKs de teste](../../actions/workflows/voidgram-android.yml).
+
+O código-fonte original é obtido na própria execução, e **não** está integralmente presente neste repositório. O processo ainda não está validado como APK funcional.
+
+### Login real (quando a primeira compilação passar)
+1. Pelo **navegador do celular**, vá a https://my.telegram.org e crie um app de desenvolvedor para obter credenciais **próprias**.
+2. Na versão web do GitHub, abra `VoidGram → Settings → Secrets and variables → Actions` e configure `VOIDGRAM_API_ID` e `VOIDGRAM_API_HASH` como **Repository secrets**.
+3. Execute novamente o workflow (aba `Actions`). Não cole o hash em comentários, README, Issues ou mensagens públicas.
+
+Sem esses Secrets, o build, caso passe, entrega **VoidGram Preview**, que não pode autenticar conta. A assinatura da build atual é temporária, por isso **não** guarda caminho de atualização estável; não use como app principal nem guarde conversas importantes nele.
+
+**Atenção:** o código da API e a infraestrutura Telegram permanecem sujeitos aos termos da plataforma. Recursos Premium validados no servidor não são desbloqueáveis no APK.
