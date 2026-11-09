@@ -34,6 +34,7 @@ class PrepareTests(unittest.TestCase):
             "TMessagesProj_AppStandalone/build.gradle": (
                 'debug { applicationIdSuffix ".web" }\n'
                 'standalone { applicationIdSuffix ".web" }\n'
+                "apply plugin: 'com.google.gms.google-services'\n"
             ),
         }
         for name, data in fixtures.items():
@@ -55,6 +56,8 @@ class PrepareTests(unittest.TestCase):
         self.assertIn("VoidGram Preview", self.read("TMessagesProj/src/main/res/values/strings.xml"))
         self.assertIn('@drawable/voidgram_icon', self.read("TMessagesProj/config/release/AndroidManifest_standalone.xml"))
         self.assertIn('applicationIdSuffix ".beta"', self.read("TMessagesProj_AppStandalone/build.gradle"))
+        self.assertNotIn("apply plugin: 'com.google.gms.google-services'",
+                         self.read("TMessagesProj_AppStandalone/build.gradle"))
         self.assertTrue((self.root / "TMessagesProj/src/main/res/drawable/voidgram_icon.xml").is_file())
 
     def test_with_credentials(self):
