@@ -32,12 +32,29 @@ jobs:
           python -m unittest discover -s tests -v
 
   android:
-    name: Compilar APK experimental (sem chave oficial)
+    name: Compilar APK experimental com API propria
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      # Validar Secrets ANTES de baixar e compilar a grande base do Telegram.
+      # Nunca imprimir valores (nem em erro, nem em logs).
+      - name: Validar API propria do VoidGram sem revelar credenciais
+        env:
+          VOIDGRAM_API_ID: ${{ secrets.VOIDGRAM_API_ID }}
+          VOIDGRAM_API_HASH: ${{ secrets.VOIDGRAM_API_HASH }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          api_id = os.environ.get("VOIDGRAM_API_ID", "")
+          api_hash = os.environ.get("VOIDGRAM_API_HASH", "")
+          if not (api_id.isdecimal() and int(api_id) > 0 and re.fullmatch(r"[0-9a-fA-F]{32}", api_hash)):
+              raise SystemExit("Secrets ausentes ou invalidos. Configure VOIDGRAM_API_ID e VOIDGRAM_API_HASH em Settings > Secrets and variables > Actions.")
+          print("API VoidGram: Secrets presentes e formato valido (valores ocultos).")
+          PY
 
       - uses: actions/setup-java@v4
         with:
@@ -119,7 +136,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: VoidGram-Android-Preview
+          name: VoidGram-Android-Login-Beta
           path: Telegram/TMessagesProj_AppStandalone/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 7
