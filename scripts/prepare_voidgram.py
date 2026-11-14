@@ -13,6 +13,21 @@ import re
 from pathlib import Path
 
 PACKAGE = "com.pedrovoid.voidgram"
+VERSION_FILE = Path(__file__).resolve().parents[1] / "VERSION"
+ALLOWED_ABIS = ("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+DEFAULT_ABIS = "arm64-v8a"
+
+def read_version(path: Path = VERSION_FILE) -> str:
+    version = path.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("VERSION precisa ter o formato N.N.N")
+    return version
+
+def parse_abis(value: str) -> list[str]:
+    abis = [item for item in re.split(r"[,\s]+", value.strip()) if item]
+    if not abis or len(set(abis)) != len(abis) or any(a not in ALLOWED_ABIS for a in abis):
+        raise ValueError("ABIs válidas (sem repetir): " + ", ".join(ALLOWED_ABIS))
+    return abis
 
 ICON_XML = """<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -44,7 +59,13 @@ def rewrite(path: Path, transform) -> None:
     if before != after:
         path.write_text(after, encoding="utf-8")
 
-def prepare(root: Path, api_id: str = "", api_hash: str = "") -> str:
+def prepare(root: Path, api_id: str = "", api_hash: str = "",
+            version: str | None = None, abis: str = DEFAULT_ABIS) -> str:
+    version = read_version() if version is None else version
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("Versão do VoidGram precisa ter o formato N.N.N")
+    abi_list = parse_abis(abis)
+    abi_gradle = ", ".join(f'"{a}"' for a in abi_list)
     if not (root / "TMessagesProj" / "src" / "main").is_dir():
         raise FileNotFoundError("Diretório não parece conter o Telegram Android original")
     if bool(api_id) != bool(api_hash):
@@ -111,6 +132,26 @@ def prepare(root: Path, api_id: str = "", api_hash: str = "") -> str:
         "Google Services plugin do app standalone"
     ))
 
+    # Versão própria: só o versionName do app muda. APP_VERSION_NAME e
+    # versionCode do upstream ficam intactos (o código interno os utiliza).
+    rewrite(app_gradle, lambda s: replace_exact(
+        s, r"^(\s*)versionName APP_VERSION_NAME$",
+        f'        versionName APP_VERSION_NAME + "-voidgram{version}"', "versionName do app"
+    ))
+
+    # Somente as arquiteturas pedidas: no empacotamento do app e na
+    # compilação nativa da biblioteca (que, sem filtro, compila as quatro).
+    rewrite(app_gradle, lambda s: replace_exact(
+        s, r'abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"',
+        "abiFilters " + abi_gradle, "ABIs do app standalone"
+    ))
+    lib_gradle = root / "TMessagesProj/build.gradle"
+    rewrite(lib_gradle, lambda s: replace_exact(
+        s, r"^(\s*)vectorDrawables\.generatedDensities = [^\n]+$",
+        "        vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']\n"
+        "        ndk { abiFilters " + abi_gradle + " }", "ABIs da biblioteca nativa"
+    ))
+
     icon = root / "TMessagesProj/src/main/res/drawable/voidgram_icon.xml"
     icon.parent.mkdir(parents=True, exist_ok=True)
     icon.write_text(ICON_XML, encoding="utf-8")
@@ -121,8 +162,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     args = parser.parse_args()
-    result = prepare(args.source, os.getenv("VOIDGRAM_API_ID", ""), os.getenv("VOIDGRAM_API_HASH", ""))
-    print(f"VoidGram preparado: {result}")
+    abis = os.getenv("VOIDGRAM_ABIS", "") or DEFAULT_ABIS
+    result = prepare(args.source, os.getenv("VOIDGRAM_API_ID", ""), os.getenv("VOIDGRAM_API_HASH", ""), abis=abis)
+    print(f"VoidGram {read_version()} preparado: {result}")
+    print("Arquiteturas: " + ", ".join(parse_abis(abis)))
     print("Pacote de depuração previsto: " + PACKAGE + ".beta")
     if result == "PREVIEW_SEM_LOGIN":
         print("Credenciais próprias ausentes: este APK é apenas uma prévia técnica; login NÃO funciona.")

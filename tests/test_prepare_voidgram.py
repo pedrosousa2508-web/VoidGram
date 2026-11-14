@@ -34,7 +34,14 @@ class PrepareTests(unittest.TestCase):
             "TMessagesProj_AppStandalone/build.gradle": (
                 'debug { applicationIdSuffix ".web" }\n'
                 'standalone { applicationIdSuffix ".web" }\n'
+                'afat { ndk { abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64" } }\n'
+                '        versionName APP_VERSION_NAME\n'
                 "apply plugin: 'com.google.gms.google-services'\n"
+            ),
+            "TMessagesProj/build.gradle": (
+                "    defaultConfig {\n"
+                "        vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']\n"
+                "    }\n"
             ),
         }
         for name, data in fixtures.items():
@@ -64,6 +71,29 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(mod.prepare(self.root, "12345", "a" * 32), "LOGIN_HABILITADO")
         self.assertIn("APP_ID = 12345;", self.read("TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"))
         self.assertIn('<string name="AppName">VoidGram</string>', self.read("TMessagesProj/src/main/res/values/strings.xml"))
+
+    def test_version_and_default_abi(self):
+        mod.prepare(self.root, version="0.2.1")
+        app = self.read("TMessagesProj_AppStandalone/build.gradle")
+        self.assertIn('versionName APP_VERSION_NAME + "-voidgram0.2.1"', app)
+        self.assertIn('abiFilters "arm64-v8a" }', app)
+        self.assertNotIn("x86", app)
+        self.assertIn('ndk { abiFilters "arm64-v8a" }', self.read("TMessagesProj/build.gradle"))
+        # A versão do upstream não pode ser alterada.
+        self.assertIn("APP_VERSION_NAME=13.2.1", self.read("gradle.properties"))
+
+    def test_custom_abis(self):
+        mod.prepare(self.root, version="0.2.1", abis="arm64-v8a, armeabi-v7a")
+        self.assertIn('ndk { abiFilters "arm64-v8a", "armeabi-v7a" }', self.read("TMessagesProj/build.gradle"))
+
+    def test_refuses_bad_version_or_abi(self):
+        for kwargs in ({"version": "v0.2"}, {"version": "0.2.1", "abis": "mips"},
+                       {"version": "0.2.1", "abis": ""}, {"version": "0.2.1", "abis": "x86,x86"}):
+            with self.assertRaises(ValueError):
+                mod.prepare(self.root, **kwargs)
+
+    def test_version_file_is_valid(self):
+        self.assertRegex(mod.read_version(), r"^\d+\.\d+\.\d+$")
 
     def test_refuses_incomplete_or_invalid_credentials(self):
         with self.assertRaises(ValueError):

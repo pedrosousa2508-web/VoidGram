@@ -7,7 +7,18 @@ on:
       - ".github/workflows/voidgram-android.yml"
       - "scripts/**"
       - "tests/**"
+      - "VERSION"
   workflow_dispatch:
+    inputs:
+      modo:
+        description: "apk = compilar | gerar-keystore = criar a assinatura fixa (uma unica vez)"
+        type: choice
+        options: [apk, gerar-keystore]
+        default: apk
+      abis:
+        description: "Arquiteturas do APK (ex.: arm64-v8a ou arm64-v8a,armeabi-v7a)"
+        type: string
+        default: arm64-v8a
 
 permissions:
   contents: read
@@ -31,8 +42,60 @@ jobs:
           python -m py_compile scripts/prepare_voidgram.py
           python -m unittest discover -s tests -v
 
+  keystore:
+    name: Gerar assinatura fixa do VoidGram (uma unica vez)
+    if: github.event_name == 'workflow_dispatch' && inputs.modo == 'gerar-keystore'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # A chave nasce protegida pela senha do Secret e so sai do runner dentro
+      # de um zip AES-256. Nada sensivel e impresso nos logs (repositorio publico).
+      - name: Gerar keystore e pacote protegido
+        shell: bash
+        env:
+          VOIDGRAM_KEYSTORE_BASE64: ${{ secrets.VOIDGRAM_KEYSTORE_BASE64 }}
+          VOIDGRAM_KEYSTORE_PASSWORD: ${{ secrets.VOIDGRAM_KEYSTORE_PASSWORD }}
+          VOIDGRAM_ARTIFACT_PASSWORD: ${{ secrets.VOIDGRAM_ARTIFACT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "$VOIDGRAM_KEYSTORE_BASE64" ]; then
+            echo "::error::VOIDGRAM_KEYSTORE_BASE64 ja existe. Gerar outra chave impediria atualizar o app instalado. Nada foi feito."
+            exit 1
+          fi
+          if [ "${#VOIDGRAM_KEYSTORE_PASSWORD}" -lt 12 ] || [ "${#VOIDGRAM_ARTIFACT_PASSWORD}" -lt 12 ]; then
+            echo "::error::Crie antes os Secrets VOIDGRAM_KEYSTORE_PASSWORD e VOIDGRAM_ARTIFACT_PASSWORD (12+ caracteres cada)."
+            exit 1
+          fi
+          mkdir pacote && cd pacote
+          keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 -validity 10000 \
+            -alias voidgram -storetype PKCS12 -keystore voidgram.p12 \
+            -storepass:env VOIDGRAM_KEYSTORE_PASSWORD \
+            -dname "CN=VoidGram,O=PedroVoid,C=BR" >/dev/null 2>&1
+          base64 -w0 voidgram.p12 > VOIDGRAM_KEYSTORE_BASE64.txt
+          {
+            echo "1. Copie TODO o conteudo de VOIDGRAM_KEYSTORE_BASE64.txt (uma linha so)."
+            echo "2. Cole no Secret VOIDGRAM_KEYSTORE_BASE64 do repositorio."
+            echo "3. Guarde este zip em local seguro: sem voidgram.p12 e a senha,"
+            echo "   nunca mais sera possivel atualizar o app sem reinstalar."
+          } > LEIA-ME.txt
+          echo "Impressao digital publica do certificado (SHA-256):"
+          keytool -list -v -keystore voidgram.p12 -alias voidgram \
+            -storepass:env VOIDGRAM_KEYSTORE_PASSWORD 2>/dev/null | grep 'SHA256:'
+          7z a -tzip -mem=AES256 -p"$VOIDGRAM_ARTIFACT_PASSWORD" ../VoidGram-keystore.zip \
+            voidgram.p12 VOIDGRAM_KEYSTORE_BASE64.txt LEIA-ME.txt >/dev/null
+          cd .. && rm -rf pacote
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoidGram-Keystore-protegido
+          path: VoidGram-keystore.zip
+          if-no-files-found: error
+          retention-days: 1
+
   android:
     name: Compilar APK experimental com API propria
+    if: github.event_name != 'workflow_dispatch' || inputs.modo != 'gerar-keystore'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -94,52 +157,117 @@ jobs:
         env:
           VOIDGRAM_API_ID: ${{ secrets.VOIDGRAM_API_ID }}
           VOIDGRAM_API_HASH: ${{ secrets.VOIDGRAM_API_HASH }}
+          VOIDGRAM_ABIS: ${{ inputs.abis }}
         run: |
           python3 scripts/prepare_voidgram.py --source Telegram
 
-      - name: Criar assinatura TEMPORARIA somente para o APK de teste
+      # Assinatura fixa (Secrets) permite atualizar por cima sem perder o login.
+      # Sem ela, cai na assinatura temporaria antiga, com aviso.
+      # As senhas nunca sao gravadas no projeto nem impressas.
+      - name: Preparar assinatura do APK
         shell: bash
+        env:
+          VOIDGRAM_KEYSTORE_BASE64: ${{ secrets.VOIDGRAM_KEYSTORE_BASE64 }}
+          VOIDGRAM_KEYSTORE_PASSWORD: ${{ secrets.VOIDGRAM_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          cd Telegram
-          rm -f TMessagesProj/config/release.keystore
-          KS_PASS="$(openssl rand -hex 16)"
-          keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 -validity 365 \
-            -alias voidgramtemp -keystore TMessagesProj/config/release.keystore \
-            -storepass "$KS_PASS" -keypass "$KS_PASS" \
-            -dname "CN=VoidGram Preview,O=PedroVoid,C=BR" >/dev/null
+          KS="Telegram/TMessagesProj/config/release.keystore"
+          rm -f "$KS" "$RUNNER_TEMP/ks_pass"
+          if [ -n "$VOIDGRAM_KEYSTORE_BASE64" ]; then
+            if ! printf '%s' "$VOIDGRAM_KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > "$KS" 2>/dev/null \
+               || ! keytool -list -keystore "$KS" -alias voidgram \
+                    -storepass:env VOIDGRAM_KEYSTORE_PASSWORD >/dev/null 2>&1; then
+              rm -f "$KS"
+              echo "::error::Keystore fixo invalido: confira VOIDGRAM_KEYSTORE_BASE64 (colado inteiro) e VOIDGRAM_KEYSTORE_PASSWORD."
+              exit 1
+            fi
+            echo "VOIDGRAM_SIGNING=fixa" >> "$GITHUB_ENV"
+            echo "Assinatura FIXA do VoidGram em uso."
+          else
+            KS_PASS="$(openssl rand -hex 16)"
+            ( umask 077; printf '%s' "$KS_PASS" > "$RUNNER_TEMP/ks_pass" )
+            keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 -validity 365 \
+              -alias voidgram -storetype PKCS12 -keystore "$KS" \
+              -storepass "$KS_PASS" \
+              -dname "CN=VoidGram Preview,O=PedroVoid,C=BR" >/dev/null 2>&1
+            echo "VOIDGRAM_SIGNING=temporaria" >> "$GITHUB_ENV"
+            echo "::warning::Assinatura TEMPORARIA: este APK nao atualiza por cima de outro build. Configure o keystore fixo."
+          fi
           {
-            echo "RELEASE_KEY_ALIAS=voidgramtemp"
-            echo "RELEASE_KEY_PASSWORD=$KS_PASS"
-            echo "RELEASE_STORE_PASSWORD=$KS_PASS"
             echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8"
             echo "org.gradle.parallel=false"
-          } >> gradle.properties
-          echo "AVISO: assinatura temporaria, instale sem preservar dados de builds anteriores."
+          } >> Telegram/gradle.properties
 
       - name: Compilar VoidGram para Android
         working-directory: Telegram
+        shell: bash
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+          VOIDGRAM_KEYSTORE_PASSWORD: ${{ secrets.VOIDGRAM_KEYSTORE_PASSWORD }}
         run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/ks_pass" ]; then
+            KS_PASS="$(cat "$RUNNER_TEMP/ks_pass")"
+          else
+            KS_PASS="$VOIDGRAM_KEYSTORE_PASSWORD"
+          fi
+          # Propriedades do Gradle via ambiente: tem prioridade sobre gradle.properties.
+          export ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS=voidgram
+          export ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD="$KS_PASS"
+          export ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD="$KS_PASS"
           chmod +x gradlew
           ./gradlew :TMessagesProj_AppStandalone:assembleAfatDebug \
             --no-daemon --max-workers=2 --stacktrace
 
-      - name: Manifesto de APKs e hash
-        if: success()
+      - name: Verificar assinatura e empacotar com senha
+        id: pacote
+        shell: bash
+        env:
+          VOIDGRAM_ARTIFACT_PASSWORD: ${{ secrets.VOIDGRAM_ARTIFACT_PASSWORD }}
+          VOIDGRAM_ABIS: ${{ inputs.abis }}
         run: |
-          find Telegram/TMessagesProj_AppStandalone/build/outputs/apk -name '*.apk' \
-            -type f -print -exec sha256sum {} \;
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/ks_pass" Telegram/TMessagesProj/config/release.keystore
+          mapfile -t APKS < <(find Telegram/TMessagesProj_AppStandalone/build/outputs/apk -name '*.apk' -type f)
+          test "${#APKS[@]}" -eq 1
+          VERSION="$(tr -d ' \r\n' < VERSION)"
+          ABI_TAG="$(printf '%s' "${VOIDGRAM_ABIS:-arm64-v8a}" | tr -c 'a-zA-Z0-9\n' '_')"
+          NAME="VoidGram-${VERSION}-${ABI_TAG}"
+          mkdir saida
+          cp "${APKS[0]}" "saida/${NAME}.apk"
+          APKSIGNER="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0/apksigner"
+          CERT="$("$APKSIGNER" verify --print-certs "saida/${NAME}.apk" | awk '/certificate SHA-256 digest/ && !visto {print $NF; visto=1}')"
+          test -n "$CERT"
+          {
+            echo "VoidGram ${VERSION}"
+            echo "Commit VoidGram: ${GITHUB_SHA}"
+            echo "Commit upstream Telegram: $(cat UPSTREAM_COMMIT.txt)"
+            echo "Arquiteturas: ${VOIDGRAM_ABIS:-arm64-v8a}"
+            echo "Assinatura: ${VOIDGRAM_SIGNING}"
+            echo "Certificado SHA-256: ${CERT}"
+            echo "APK SHA-256: $(sha256sum "saida/${NAME}.apk" | cut -d' ' -f1)"
+            echo "Tamanho do APK: $(du -h "saida/${NAME}.apk" | cut -f1)"
+          } | tee saida/BUILD_INFO.txt
+          cat saida/BUILD_INFO.txt >> "$GITHUB_STEP_SUMMARY"
+          if [ "${#VOIDGRAM_ARTIFACT_PASSWORD}" -ge 12 ]; then
+            ( cd saida && 7z a -tzip -mem=AES256 -p"$VOIDGRAM_ARTIFACT_PASSWORD" "../${NAME}.zip" \
+                "${NAME}.apk" BUILD_INFO.txt >/dev/null )
+            echo "protegido=true" >> "$GITHUB_OUTPUT"
+            echo "arquivo=${NAME}.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "protegido=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::VOIDGRAM_ARTIFACT_PASSWORD ausente ou com menos de 12 caracteres: o APK NAO foi publicado (repositorio publico)."
+          fi
+          rm -rf saida
 
-      - name: Disponibilizar APK experimental
-        if: success()
+      - name: Disponibilizar APK protegido por senha
+        if: steps.pacote.outputs.protegido == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: VoidGram-Android-Login-Beta
-          path: Telegram/TMessagesProj_AppStandalone/build/outputs/apk/**/*.apk
+          name: VoidGram-APK-protegido
+          path: ${{ steps.pacote.outputs.arquivo }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
 
       - name: Registrar SHA de upstream
         if: always()
