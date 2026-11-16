@@ -63,10 +63,19 @@ jobs:
             echo "::error::VOIDGRAM_KEYSTORE_BASE64 ja existe. Gerar outra chave impediria atualizar o app instalado. Nada foi feito."
             exit 1
           fi
-          if [ "${#VOIDGRAM_KEYSTORE_PASSWORD}" -lt 12 ] || [ "${#VOIDGRAM_ARTIFACT_PASSWORD}" -lt 12 ]; then
-            echo "::error::Crie antes os Secrets VOIDGRAM_KEYSTORE_PASSWORD e VOIDGRAM_ARTIFACT_PASSWORD (12+ caracteres cada)."
-            exit 1
-          fi
+          # Diz apenas QUAL Secret precisa de correcao; nunca o valor nem o tamanho.
+          FALTA=0
+          for NOME in VOIDGRAM_KEYSTORE_PASSWORD VOIDGRAM_ARTIFACT_PASSWORD; do
+            VALOR="${!NOME}"
+            if [ -z "$VALOR" ]; then
+              echo "::error::O Secret $NOME nao existe ou esta vazio."
+              FALTA=1
+            elif [ "${#VALOR}" -lt 12 ]; then
+              echo "::error::O Secret $NOME tem menos de 12 caracteres. Regrave com 12 ou mais."
+              FALTA=1
+            fi
+          done
+          [ "$FALTA" -eq 0 ] || exit 1
           mkdir pacote && cd pacote
           keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 -validity 10000 \
             -alias voidgram -storetype PKCS12 -keystore voidgram.p12 \
