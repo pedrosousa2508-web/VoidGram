@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Textos do VoidGram. Sem tradução: se o pacote de idioma do Telegram não tiver a chave, vale este texto. -->
+<resources>
+    <string name="VoidGramSettings">VoidGram</string>
+    <string name="VoidGramInfoHeader">Sobre esta versão</string>
+    <string name="VoidGramVersionTitle">VoidGram</string>
+    <string name="VoidGramBaseTitle">Base Telegram</string>
+    <string name="VoidGramUpstreamTitle">Commit da base</string>
+    <string name="VoidGramLinksHeader">Projeto</string>
+    <string name="VoidGramSourceCode">Código-fonte</string>
+    <string name="VoidGramLicense">Licença GPL</string>
+    <string name="VoidGramNotice">Cliente não oficial do Telegram, sem afiliação com o Telegram. Recursos Premium continuam exclusivos de assinantes.</string>
+</resources>
