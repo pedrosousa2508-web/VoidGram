@@ -9,6 +9,24 @@ spec = importlib.util.spec_from_file_location("prepare_voidgram", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
+# Trechos reais do ProfileActivity.java do upstream fixado, com a mesma indentação.
+PROFILE_FIXTURE = (
+    "    private int languageRow;\n"
+    "    void reset() {\n"
+    "        languageRow = -1;\n"
+    "    }\n"
+    "                settingsSectionRow2 = rowCount++;\n"
+    "                chatRow = rowCount++;\n"
+    "            } else if (position == liteModeRow) {\n"
+    "                presentFragment(new LiteModeSettingsActivity());\n"
+    "                    } else if (position == liteModeRow) {\n"
+    "                    } else if (position == devicesRow) {\n"
+    "                        textCell.setTextAndIcon(LocaleController.getString(R.string.Devices), R.drawable.msg2_devices, true);\n"
+    "                        position == questionRow || position == devicesRow || position == filtersRow ||\n"
+    "                    position == questionRow || position == devicesRow || position == filtersRow ||\n"
+    "            put(++pointer, devicesRow, sparseIntArray);\n"
+)
+
 class PrepareTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -38,6 +56,7 @@ class PrepareTests(unittest.TestCase):
                 '        versionName APP_VERSION_NAME\n'
                 "apply plugin: 'com.google.gms.google-services'\n"
             ),
+            mod.PROFILE: PROFILE_FIXTURE,
             "TMessagesProj/build.gradle": (
                 "    defaultConfig {\n"
                 "        vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']\n"
@@ -94,6 +113,43 @@ class PrepareTests(unittest.TestCase):
 
     def test_version_file_is_valid(self):
         self.assertRegex(mod.read_version(), r"^\d+\.\d+\.\d+$")
+
+    def test_settings_entry_and_overlay(self):
+        mod.prepare(self.root, version="0.3.0")
+        p = self.read(mod.PROFILE)
+        self.assertIn("    private int voidgramRow;", p)
+        self.assertIn("        voidgramRow = -1;", p)
+        # "Otimização na entrada": o item fica no topo da seção de Configurações.
+        self.assertIn("settingsSectionRow2 = rowCount++;\n                voidgramRow = rowCount++;\n"
+                      "                chatRow = rowCount++;", p)
+        self.assertIn("presentFragment(new VoidGramSettingsActivity());", p)
+        self.assertIn("R.drawable.voidgram_settings_icon", p)
+        self.assertEqual(p.count("position == voidgramRow ||"), 2)
+        self.assertIn("put(++pointer, voidgramRow, sparseIntArray);", p)
+        self.assertTrue((self.root / "TMessagesProj/src/main/java/org/telegram/ui/VoidGramSettingsActivity.java").is_file())
+        self.assertTrue((self.root / "TMessagesProj/src/main/res/values/voidgram_strings.xml").is_file())
+        self.assertFalse((self.root / "README.md").exists())
+        build = self.read("TMessagesProj/src/main/res/values/voidgram_build.xml")
+        self.assertIn('name="VoidGramVersion" translatable="false">0.3.0<', build)
+        self.assertIn(">desconhecido<", build)
+
+    def test_overlay_never_overwrites_upstream(self):
+        existing = self.root / "TMessagesProj/src/main/res/values/voidgram_strings.xml"
+        existing.write_text("<resources/>", encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            mod.prepare(self.root, version="0.3.0")
+        self.assertEqual(existing.read_text(encoding="utf-8"), "<resources/>")
+
+    def test_settings_patch_fails_loudly_if_upstream_changes(self):
+        (self.root / mod.PROFILE).write_text(PROFILE_FIXTURE.replace("chatRow = rowCount++;", "chat = 1;"),
+                                             encoding="utf-8")
+        with self.assertRaises(ValueError):
+            mod.prepare(self.root, version="0.3.0")
+
+    def test_overlay_strings_are_valid_xml(self):
+        import xml.etree.ElementTree as ET
+        for xml in mod.OVERLAY_DIR.rglob("*.xml"):
+            ET.parse(xml)
 
     def test_refuses_incomplete_or_invalid_credentials(self):
         with self.assertRaises(ValueError):
