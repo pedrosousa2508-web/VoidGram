@@ -5,7 +5,8 @@ Leia este arquivo antes de alterar o repositório. O README descreve o uso; aqui
 ## Projeto
 - Cliente Android não oficial do Telegram, projeto PedroVoid. Não é afiliado ao Telegram.
 - Base: `DrKLO/Telegram` (GPL-2.0-ou-posterior), baixado a cada build no commit fixado em `UPSTREAM_SHA` do workflow. O código do Telegram **não** fica neste repositório.
-- Este repositório contém só: workflow, `scripts/prepare_voidgram.py` (patch), testes, `VERSION` e documentação.
+- Este repositório contém só: workflow, `scripts/prepare_voidgram.py` (patch), `overlay/` (arquivos novos do VoidGram copiados para dentro do Telegram), testes, `VERSION` e documentação.
+- Código novo vai em `overlay/` (nunca sobrescreve o upstream); mudança em arquivo do Telegram vai como patch no script, com `replace_exact` e teste.
 - Pacote: `com.pedrovoid.voidgram.beta`. Aparelho de teste: POCO C75, Android 16 / HyperOS 3.
 - O dono trabalha 100% pelo celular: GitHub web e GitHub Actions. Não há computador nem Android Studio.
 

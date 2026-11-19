@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone monocromático do item VoidGram nas Configurações (a cor vem do tema). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2a10,10 0,1 0,0 20a10,10 0,1 0,0 -20M12,4a8,8 0,1 1,0 16a8,8 0,1 1,0 -16"/>
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M7.2,7.5L9.4,7.5L12,14.4L14.6,7.5L16.8,7.5L13,17L11,17Z"/>
+</vector>
