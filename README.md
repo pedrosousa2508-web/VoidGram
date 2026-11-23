@@ -7,6 +7,7 @@ Um mensageiro personalizado, extensível e transparente: preservar toda a experi
 
 ## Documentação
 - [Pesquisa técnica v0.1: código oficial, Nekogram, NekoX, Nagram, Mercurygram, Forkgram e outros](docs/PESQUISA_TECNICA_V0_1.md)
+- [Método CAVERNA — aplicação no VoidGram, critérios e integração com cinco agentes](docs/METODO_CAVERNA_VOIDGRAM.md)
 - [Regras oficiais da API do Telegram](https://core.telegram.org/api/terms)
 - [Código-fonte Android oficial](https://github.com/DrKLO/Telegram)
 
