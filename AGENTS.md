@@ -40,3 +40,8 @@ Leia este arquivo antes de alterar o repositório. O README descreve o uso; aqui
 - A versão do VoidGram fica em `VERSION` (formato N.N.N) e entra no nome de versão do app.
 - Cada marco testado recebe uma tag `vN.N.N`. Para voltar atrás, recompila-se a tag anterior; com a assinatura fixa, o APK instala por cima se o código de versão não for menor.
 - O backup do keystore fica com o dono, fora do repositório.
+
+## Integração do Método CAVERNA (23/11/2026)
+- Aplicar a estrutura Contexto, Ação, Variáveis, Entrega, Regras, Nível de qualidade e Ajuste conforme [docs/METODO_CAVERNA_VOIDGRAM.md](docs/METODO_CAVERNA_VOIDGRAM.md).
+- Não executar exemplos didáticos, nem presumir que agentes/plugins foram acionados; consultar as configurações integrais no Notion quando necessário.
+- As regras deste AGENTS.md e as decisões já aprovadas permanecem válidas; o método acrescenta disciplina de especificação, verificação e correção localizada.
