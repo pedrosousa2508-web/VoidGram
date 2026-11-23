@@ -10,10 +10,14 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 PACKAGE = "com.pedrovoid.voidgram"
 VERSION_FILE = Path(__file__).resolve().parents[1] / "VERSION"
+OVERLAY_DIR = Path(__file__).resolve().parents[1] / "overlay"
+PROFILE = "TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java"
 ALLOWED_ABIS = ("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 DEFAULT_ABIS = "arm64-v8a"
 
@@ -51,6 +55,74 @@ def replace_exact(text: str, pattern: str, replacement: str, context: str) -> st
         raise ValueError(f"Falha ao localizar exatamente uma vez: {context}")
     return changed
 
+def replace_count(text: str, old: str, new: str, expected: int, context: str) -> str:
+    """Troca literal que precisa ocorrer exatamente `expected` vezes."""
+    if text.count(old) != expected:
+        raise ValueError(f"Esperado {expected} ocorrência(s), achei {text.count(old)}: {context}")
+    return text.replace(old, new)
+
+def apply_overlay(root: Path, overlay: Path) -> list[str]:
+    """Copia arquivos novos do VoidGram; nunca sobrescreve arquivo do upstream."""
+    copied = []
+    for src in sorted(overlay.rglob("*")):
+        if not src.is_file() or src.relative_to(overlay) == Path("README.md"):
+            continue
+        rel = src.relative_to(overlay)
+        dest = root / rel
+        if dest.exists():
+            raise FileExistsError(f"overlay sobrescreveria arquivo do upstream: {rel}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        copied.append(rel.as_posix())
+    return copied
+
+def upstream_commit(root: Path) -> str:
+    if not (root / ".git").exists():
+        return "desconhecido"
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--short=12", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "desconhecido"
+    return out if re.fullmatch(r"[0-9a-f]{7,40}", out) else "desconhecido"
+
+def patch_profile(s: str) -> str:
+    """Item "VoidGram" no topo das Configurações, abrindo VoidGramSettingsActivity."""
+    s = replace_exact(s, r"^    private int languageRow;$",
+                      "    private int languageRow;\n    private int voidgramRow;", "campo da linha")
+    s = replace_exact(s, r"^        languageRow = -1;$",
+                      "        languageRow = -1;\n        voidgramRow = -1;", "reset da linha")
+    s = replace_exact(s, r"^                settingsSectionRow2 = rowCount\+\+;\n                chatRow = rowCount\+\+;$",
+                      "                settingsSectionRow2 = rowCount++;\n"
+                      "                voidgramRow = rowCount++;\n"
+                      "                chatRow = rowCount++;", "posição no topo das Configurações")
+    s = replace_exact(s, r"^            \} else if \(position == liteModeRow\) \{\n"
+                         r"                presentFragment\(new LiteModeSettingsActivity\(\)\);$",
+                      "            } else if (position == voidgramRow) {\n"
+                      "                presentFragment(new VoidGramSettingsActivity());\n"
+                      "            } else if (position == liteModeRow) {\n"
+                      "                presentFragment(new LiteModeSettingsActivity());", "toque na linha")
+    s = replace_exact(s, r"^                    \} else if \(position == devicesRow\) \{\n"
+                         r"                        textCell\.setTextAndIcon\(LocaleController\.getString\(R\.string\.Devices\)",
+                      "                    } else if (position == voidgramRow) {\n"
+                      "                        textCell.setTextAndIcon(LocaleController.getString(R.string.VoidGramSettings), "
+                      "R.drawable.voidgram_settings_icon, true);\n"
+                      "                    } else if (position == devicesRow) {\n"
+                      "                        textCell.setTextAndIcon(LocaleController.getString(R.string.Devices)",
+                      "desenho da linha")
+    # isEnabled e getItemViewType: cada método possui âncora independente.
+    # O upstream fixado inclui stickersRow; os recuos são distintos.
+    s = replace_exact(s, r"^                        position == questionRow \|\| position == devicesRow \|\| position == filtersRow \|\| position == stickersRow \|\|$",
+                      "                        position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow || position == voidgramRow ||",
+                      "isEnabled da linha")
+    s = replace_exact(s, r"^                    position == questionRow \|\| position == devicesRow \|\| position == filtersRow \|\| position == stickersRow \|\|$",
+                      "                    position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow || position == voidgramRow ||",
+                      "getItemViewType da linha")
+    s = replace_exact(s, r"^            put\(\+\+pointer, devicesRow, sparseIntArray\);$",
+                      "            put(++pointer, devicesRow, sparseIntArray);\n"
+                      "            put(++pointer, voidgramRow, sparseIntArray);", "animação da lista")
+    return s
+
 def rewrite(path: Path, transform) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo da base ausente: {path}")
@@ -60,7 +132,8 @@ def rewrite(path: Path, transform) -> None:
         path.write_text(after, encoding="utf-8")
 
 def prepare(root: Path, api_id: str = "", api_hash: str = "",
-            version: str | None = None, abis: str = DEFAULT_ABIS) -> str:
+            version: str | None = None, abis: str = DEFAULT_ABIS,
+            overlay: Path = OVERLAY_DIR) -> str:
     version = read_version() if version is None else version
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Versão do VoidGram precisa ter o formato N.N.N")
@@ -151,6 +224,18 @@ def prepare(root: Path, api_id: str = "", api_hash: str = "",
         "        vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']\n"
         "        ndk { abiFilters " + abi_gradle + " }", "ABIs da biblioteca nativa"
     ))
+
+    # Tela do VoidGram: arquivos novos do overlay + entrada nas Configurações.
+    apply_overlay(root, overlay)
+    build_res = root / "TMessagesProj/src/main/res/values/voidgram_build.xml"
+    if build_res.exists():
+        raise FileExistsError("voidgram_build.xml já existe no upstream")
+    build_res.write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+        f'    <string name="VoidGramVersion" translatable="false">{version}</string>\n'
+        f'    <string name="VoidGramUpstreamCommit" translatable="false">{upstream_commit(root)}</string>\n'
+        '</resources>\n', encoding="utf-8")
+    rewrite(root / PROFILE, patch_profile)
 
     icon = root / "TMessagesProj/src/main/res/drawable/voidgram_icon.xml"
     icon.parent.mkdir(parents=True, exist_ok=True)

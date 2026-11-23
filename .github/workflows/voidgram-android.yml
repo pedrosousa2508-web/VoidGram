@@ -8,6 +8,7 @@ on:
       - "scripts/**"
       - "tests/**"
       - "VERSION"
+      - "overlay/**"
   workflow_dispatch:
     inputs:
       modo:

@@ -31,6 +31,7 @@ Um mensageiro personalizado, extensível e transparente: preservar toda a experi
 ## Compilação (GitHub Actions)
 - [Workflow](.github/workflows/voidgram-android.yml): roda os testes, baixa o Telegram Android no commit fixado, aplica o patch e compila.
 - [Script de personalização](scripts/prepare_voidgram.py): pacote `com.pedrovoid.voidgram.beta`, nome, ícone, API própria, versão do VoidGram (arquivo [`VERSION`](VERSION)) e arquiteturas do APK. Desliga passkeys, o atualizador oficial e o Firebase do Telegram.
+- [`overlay/`](overlay/README.md): arquivos novos do VoidGram (por exemplo, a tela **Configurações → VoidGram**), copiados para dentro do Telegram a cada build.
 - [Testes do script](tests/test_prepare_voidgram.py).
 
 O código do Telegram é obtido a cada execução e **não** fica neste repositório.
