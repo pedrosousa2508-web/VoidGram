@@ -110,10 +110,14 @@ def patch_profile(s: str) -> str:
                       "                    } else if (position == devicesRow) {\n"
                       "                        textCell.setTextAndIcon(LocaleController.getString(R.string.Devices)",
                       "desenho da linha")
-    # isEnabled e getItemViewType: a linha é uma célula de texto clicável.
-    s = replace_count(s, "position == questionRow || position == devicesRow ||",
-                      "position == questionRow || position == devicesRow || position == voidgramRow ||",
-                      2, "tipo e habilitação da linha")
+    # isEnabled e getItemViewType: cada método possui âncora independente.
+    # O upstream fixado inclui stickersRow; os recuos são distintos.
+    s = replace_exact(s, r"^                        position == questionRow \|\| position == devicesRow \|\| position == filtersRow \|\| position == stickersRow \|\|$",
+                      "                        position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow || position == voidgramRow ||",
+                      "isEnabled da linha")
+    s = replace_exact(s, r"^                    position == questionRow \|\| position == devicesRow \|\| position == filtersRow \|\| position == stickersRow \|\|$",
+                      "                    position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow || position == voidgramRow ||",
+                      "getItemViewType da linha")
     s = replace_exact(s, r"^            put\(\+\+pointer, devicesRow, sparseIntArray\);$",
                       "            put(++pointer, devicesRow, sparseIntArray);\n"
                       "            put(++pointer, voidgramRow, sparseIntArray);", "animação da lista")

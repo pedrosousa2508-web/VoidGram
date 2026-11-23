@@ -22,8 +22,8 @@ PROFILE_FIXTURE = (
     "                    } else if (position == liteModeRow) {\n"
     "                    } else if (position == devicesRow) {\n"
     "                        textCell.setTextAndIcon(LocaleController.getString(R.string.Devices), R.drawable.msg2_devices, true);\n"
-    "                        position == questionRow || position == devicesRow || position == filtersRow ||\n"
-    "                    position == questionRow || position == devicesRow || position == filtersRow ||\n"
+    "                        position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow ||\n"
+    "                    position == questionRow || position == devicesRow || position == filtersRow || position == stickersRow ||\n"
     "            put(++pointer, devicesRow, sparseIntArray);\n"
 )
 
@@ -145,6 +145,38 @@ class PrepareTests(unittest.TestCase):
                                              encoding="utf-8")
         with self.assertRaises(ValueError):
             mod.prepare(self.root, version="0.3.0")
+
+    def test_is_enabled_and_get_item_view_type_patched_independently(self):
+        mod.prepare(self.root, version="0.3.0")
+        p = self.read(mod.PROFILE)
+        self.assertEqual(p.count("position == voidgramRow ||"), 2)
+        self.assertIn(
+            "                        position == questionRow || position == devicesRow || "
+            "position == filtersRow || position == stickersRow || position == voidgramRow ||", p
+        )
+        self.assertIn(
+            "                    position == questionRow || position == devicesRow || "
+            "position == filtersRow || position == stickersRow || position == voidgramRow ||", p
+        )
+
+    def test_is_enabled_and_get_item_view_type_each_anchor_must_exist(self):
+        import shutil
+        lines = (
+            "                        position == questionRow || position == devicesRow || "
+            "position == filtersRow || position == stickersRow ||\n",
+            "                    position == questionRow || position == devicesRow || "
+            "position == filtersRow || position == stickersRow ||\n",
+        )
+        for target in lines:
+            with self.subTest(indent=len(target) - len(target.lstrip())):
+                with tempfile.TemporaryDirectory() as d:
+                    root = Path(d)
+                    shutil.copytree(self.root, root, dirs_exist_ok=True)
+                    profile = root / mod.PROFILE
+                    self.assertEqual(PROFILE_FIXTURE.count(target), 1)
+                    profile.write_text(PROFILE_FIXTURE.replace(target, "", 1), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        mod.prepare(root, version="0.3.0")
 
     def test_overlay_strings_are_valid_xml(self):
         import xml.etree.ElementTree as ET
